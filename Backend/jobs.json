@@ -1,1 +1,26 @@
-
+[
+  {
+    "id": "job1",
+    "title": "Full Stack Engineer",
+    "company": "Tech Innovators Inc.",
+    "description": "Build and maintain web applications using React and Node.js."
+  },
+  {
+    "id": "job2",
+    "title": "AI Engineer",
+    "company": "FutureAI Corp.",
+    "description": "Develop and deploy machine learning models for NLP tasks."
+  },
+  {
+    "id": "job3",
+    "title": "DevOps Specialist",
+    "company": "CloudOps Solutions",
+    "description": "Implement CI/CD pipelines and manage cloud infrastructure."
+  },
+  {
+    "id": "job4",
+    "title": "Frontend Developer",
+    "company": "UI/UX Studio",
+    "description": "Design and develop responsive web interfaces using React."
+  }
+]
