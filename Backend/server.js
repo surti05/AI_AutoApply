@@ -1,14 +1,14 @@
 /*
- * AI Auto‑Apply backend service (prototype)
+ * AI Auto-Apply backend service (prototype) — happy-path only
  *
- * This Express server exposes two endpoints:
- *  POST /auto‑apply  – starts a new auto‑apply run and returns a runId
- *  GET  /status/:id   – returns the status and results of a run
+ * Endpoints:
+ *  POST /auto-apply      – starts a new auto-apply run (optional body: { threshold: number })
+ *  GET  /status/:id      – returns the status and results of a run
  *
- * Job discovery, matching and application are simulated using
- * static data and setTimeout() calls.  In production these would be
- * asynchronous tasks that fetch real jobs, call AI models for
- * matching, and use Playwright/Puppeteer to submit applications.
+ * Notes:
+ *  - No random failures (demo-friendly).
+ *  - Optional match threshold (env or request body).
+ *  - Jobs, matching, and applying are simulated to keep scope tight.
  */
 
 const express = require('express');
@@ -21,72 +21,81 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
-// In‑memory store for runs.  In a real implementation this would
-// live in Firestore or another database so that status persists
-// across server restarts【314292304843496†L52-L55】.
+// === CONFIG ===
+// If you want everything to succeed, leave APPLY_ALWAYS_SUCCESS=true (default).
+const APPLY_ALWAYS_SUCCESS = process.env.APPLY_ALWAYS_SUCCESS !== 'false'; // default true
+// Minimal match score needed to auto-apply (0..1). Can be overridden per request.
+const MIN_MATCH_THRESHOLD = Number(process.env.MIN_MATCH_THRESHOLD || '0.70');
+
+// In-memory runs store (simple for prototype; real systems would persist this).
 const runs = {};
 
-// Load mock jobs from a JSON file.  Each job has id, title, company and description.
+// Load mock jobs (id, title, company, description) from local file.
 function loadJobs() {
   const filePath = path.join(__dirname, 'jobs.json');
   const raw = fs.readFileSync(filePath, 'utf8');
   return JSON.parse(raw);
 }
 
-// Simulate matching engine – select a subset of jobs and assign match scores.
+// Simulate matching: pick a few jobs and give descending scores.
 function matchJobs(jobs) {
-  return jobs.slice(0, 3).map((job, index) => {
-    return {
-      jobId: job.id,
-      title: job.title,
-      company: job.company,
-      matchScore: parseFloat((0.9 - index * 0.1).toFixed(2)),
-      status: 'pending'
-    };
-  });
+  return jobs.slice(0, 3).map((job, index) => ({
+    jobId: job.id,
+    title: job.title,
+    company: job.company,
+    matchScore: parseFloat((0.9 - index * 0.1).toFixed(2)), // 0.9, 0.8, 0.7
+    status: 'pending'
+  }));
 }
 
-// Simulate application executor – pretend to apply to each job and mark status.
-function applyToJobs(matchedJobs) {
+// Apply step (demo-friendly): if above threshold => applied, else skipped.
+// No random failures; keep the prototype simple and predictable.
+async function applyToJobs(matchedJobs, threshold) {
   return matchedJobs.map(job => {
-    // random success/failure simulation
-    const success = Math.random() > 0.2;
-    return {
-      ...job,
-      status: success ? 'applied' : 'failed'
-    };
+    if (APPLY_ALWAYS_SUCCESS) {
+      if (Number(job.matchScore) >= threshold) {
+        return { ...job, status: 'applied', reason: 'demo-success' };
+      }
+      return { ...job, status: 'skipped', reason: 'below-threshold' };
+    }
+    // If you ever set APPLY_ALWAYS_SUCCESS=false, still avoid randomness:
+    if (Number(job.matchScore) >= threshold) {
+      return { ...job, status: 'applied', reason: 'success' };
+    }
+    return { ...job, status: 'skipped', reason: 'below-threshold' };
   });
 }
 
-// POST /auto‑apply – create a new run and begin processing
+// POST /auto-apply – create a new run and start the pipeline
 app.post('/auto-apply', (req, res) => {
   const runId = uuidv4();
-  runs[runId] = { status: 'processing', jobs: [] };
+  // Allow per-request override: { threshold: 0.75 }
+  const requestedThreshold = typeof req.body?.threshold === 'number' ? req.body.threshold : undefined;
+  const threshold = Number.isFinite(requestedThreshold) ? requestedThreshold : MIN_MATCH_THRESHOLD;
+
+  runs[runId] = { status: 'processing', jobs: [], threshold };
   res.json({ runId });
 
-  // Simulate asynchronous pipeline
+  // Simulate async pipeline
   setTimeout(() => {
     const jobs = loadJobs();
     const matched = matchJobs(jobs);
-    // update intermediate state
-    runs[runId] = { status: 'matching complete', jobs: matched };
-    // Simulate application time
-    setTimeout(() => {
-      const applied = applyToJobs(matched);
-      runs[runId] = { status: 'completed', jobs: applied };
-    }, 2000);
-  }, 2000);
+    runs[runId] = { status: 'matching complete', jobs: matched, threshold };
+
+    setTimeout(async () => {
+      const applied = await applyToJobs(matched, threshold);
+      runs[runId] = { status: 'completed', jobs: applied, threshold };
+    }, 1000);
+  }, 800);
 });
 
 // GET /status/:id – return status and results
 app.get('/status/:id', (req, res) => {
   const run = runs[req.params.id];
-  if (!run) {
-    return res.status(404).json({ error: 'Run not found' });
-  }
+  if (!run) return res.status(404).json({ error: 'Run not found' });
   res.json(run);
 });
 
 app.listen(PORT, () => {
-  console.log(`Auto‑apply backend listening on port ${PORT}`);
+  console.log(`Auto-apply backend listening on port ${PORT}`);
 });
